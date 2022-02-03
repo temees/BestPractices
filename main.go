@@ -15,6 +15,10 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+var (
+	minLvl = 0
+)
+
 type CrawlResult struct {
 	Err   error
 	Title string
@@ -114,13 +118,13 @@ func NewCrawler(r Requester, cfg Config) *crawler {
 		visited: make(map[string]struct{}),
 		cfg:     cfg,
 		mu:      sync.RWMutex{},
-		Lvl: 0,
+		Lvl:     0,
 	}
 }
 
 func (c *crawler) Scan(ctx context.Context, url string, lvl int) {
 
-	if lvl <= c.Lvl { //Проверяем то, что есть запас по глубине
+	if lvl <= minLvl { //Проверяем то, что есть запас по глубине
 		return
 	}
 	c.mu.RLock()
@@ -147,7 +151,7 @@ func (c *crawler) Scan(ctx context.Context, url string, lvl int) {
 		}
 
 		for _, link := range page.GetLinks() {
-			go c.Scan(ctx, link, lvl - 1) //На все полученные ссылки запускаем новую рутину сборки
+			go c.Scan(ctx, link, lvl-1) //На все полученные ссылки запускаем новую рутину сборки
 		}
 	}
 }
@@ -182,8 +186,8 @@ func main() {
 	cr = NewCrawler(r, cfg)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go cr.Scan(ctx, cfg.Url, cfg.MaxDepth)         //Запускаем краулер в отдельной рутине
-	go cr.ProcessResult(ctx, cancel) //Обрабатываем результаты в отдельной рутине
+	go cr.Scan(ctx, cfg.Url, cfg.MaxDepth) //Запускаем краулер в отдельной рутине
+	go cr.ProcessResult(ctx, cancel)       //Обрабатываем результаты в отдельной рутине
 
 	sigCh := make(chan os.Signal)                         //Создаем канал для приема сигналов
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGUSR1) //Подписываемся на сигнал SIGINT SIGUSR1
@@ -197,7 +201,7 @@ func main() {
 			}
 			fmt.Println(sig)
 			if sig == syscall.SIGUSR1 {
-				cr.Lvl -= 2
+				minLvl -= 2
 			}
 		}
 	}
@@ -210,8 +214,8 @@ func (c *crawler) ProcessResult(ctx context.Context, cancel func()) {
 		case <-ctx.Done():
 			return
 		case msg := <-c.ChanResult():
-			//time.Sleep(5 * time.Second)
-			fmt.Println(c.cfg)
+			time.Sleep(5 * time.Second)
+			fmt.Println(c.cfg, minLvl)
 			if msg.Err != nil {
 				maxErrors--
 				log.Printf("crawler result return err: %s\n", msg.Err.Error())
